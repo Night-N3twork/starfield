@@ -65,6 +65,8 @@ def _copy_tree(src: Path, checkout: Path, delete: bool) -> None:
     wanted = set()
     for path in sorted(p for p in src.rglob("*") if p.is_file()):
         rel = path.relative_to(src)
+        if rel.parts[0] == ".git":
+            continue
         wanted.add(rel)
         dest = checkout / rel
         dest.parent.mkdir(parents=True, exist_ok=True)
@@ -106,7 +108,11 @@ def sync(
     src = Path(folder)
     if not src.is_dir():
         raise core.CliError(f"folder not found: {folder}")
-    files = [p for p in src.rglob("*") if p.is_file()]
+    files = [
+        p
+        for p in src.rglob("*")
+        if p.is_file() and p.relative_to(src).parts[0] != ".git"
+    ]
     if not files:
         raise core.CliError(f"refusing to sync empty folder: {folder}")
     url = f"https://github.com/{org}/{repo}.git"
@@ -147,14 +153,24 @@ def sync(
             shutil.rmtree(tmpdir, ignore_errors=True)
 
 
+#: Substrings (lowercased) of a `gh repo view` error that mean "missing".
+_NOT_FOUND_HINTS = ("could not resolve", "not found", "404")
+
+
+def _is_not_found(exc: core.CliError) -> bool:
+    msg = exc.message.lower()
+    return any(hint in msg for hint in _NOT_FOUND_HINTS)
+
+
 def ensure_repo(org: str, repo: str, public: bool = False, timeout: float = 60) -> dict:
     """Create `org/repo` when missing; return `{"created": bool}`."""
     slug = f"{org}/{repo}"
     try:
         core.run(["gh", "repo", "view", slug, "--json", "name"], timeout=timeout)
         return {"created": False}
-    except core.CliError:
-        pass
+    except core.CliError as exc:
+        if not _is_not_found(exc):
+            raise
     visibility = "--public" if public else "--private"
     core.run(["gh", "repo", "create", slug, visibility], timeout=timeout)
     return {"created": True}

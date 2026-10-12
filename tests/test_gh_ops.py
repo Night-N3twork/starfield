@@ -39,6 +39,7 @@ class FakeRun:
         self.status_output = " M index.html\n"
         self.status_script = []
         self.view_ok = True
+        self.view_error = None
 
     def __call__(self, cmd, timeout=300):
         self.calls.append((list(cmd), timeout))
@@ -55,6 +56,8 @@ class FakeRun:
         if cmd[0] == "git" and "rev-parse" in cmd:
             return FAKE_SHA + "\n"
         if cmd[0] == "gh" and cmd[1:3] == ["repo", "view"]:
+            if self.view_error is not None:
+                raise core.CliError(self.view_error)
             if self.view_ok:
                 return json.dumps({"name": cmd[3].split("/")[1]})
             raise core.CliError("gh: exited 1: Could not resolve to a Repository")
@@ -122,6 +125,18 @@ class TestSync(GhOpsTestBase):
             Path(wd, "old.txt").write_text("stale")
             gh_ops.sync("acme", "lyra", str(src), workdir=wd, delete=False)
             self.assertTrue((Path(wd) / "old.txt").exists())
+
+    def test_sync_skips_git_dir_in_source(self):
+        self.fake.status_script = [""]
+        src = self.make_source({"index.html": b"x", ".git/config": b"[core]"})
+        with tempfile.TemporaryDirectory() as wd:
+            Path(wd, ".git").mkdir(exist_ok=True)
+            head = Path(wd, ".git", "HEAD")
+            head.write_text("ref: refs/heads/main")
+            gh_ops.sync("acme", "lyra", str(src), workdir=wd)
+            self.assertEqual(head.read_text(), "ref: refs/heads/main")
+            self.assertFalse((Path(wd) / ".git" / "config").exists())
+            self.assertEqual((Path(wd) / "index.html").read_bytes(), b"x")
 
     def test_sync_clean_skips_commit_and_push(self):
         self.fake.status_script = ["", ""]
@@ -196,6 +211,12 @@ class TestEnsureRepo(GhOpsTestBase):
         gh_ops.ensure_repo("acme", "new", public=True)
         creates = [c for c, _ in self.fake.calls if c[1:3] == ["repo", "create"]]
         self.assertIn("--public", creates[0])
+
+    def test_view_auth_failure_propagates_without_create(self):
+        self.fake.view_error = "gh: exited 1: Bad credentials (HTTP 401)"
+        with self.assertRaises(core.CliError):
+            gh_ops.ensure_repo("acme", "lyra")
+        self.assertFalse(any(c[1:3] == ["repo", "create"] for c, _ in self.fake.calls))
 
 
 class TestListRepos(GhOpsTestBase):

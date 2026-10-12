@@ -1,0 +1,235 @@
+"""HTTP server tests (Task 6). Stdlib unittest only.
+
+Real local HTTP server in-thread on an ephemeral port, exercised via
+`urllib`: /healthz 200, POST /v1/links md text, unknown path 404 JSON,
+ensure-bucket gate, plus list/verify passthrough with fakes.
+"""
+
+import io
+import json
+import threading
+import unittest
+import urllib.error
+import urllib.request
+from contextlib import redirect_stderr, redirect_stdout
+from unittest import mock
+
+from starfield import cli, http_server
+
+
+def _start_server(allow_create=False):
+    server = http_server.build_server(
+        "127.0.0.1", 0, allow_create=allow_create
+    )
+    thread = threading.Thread(
+        target=server.serve_forever, kwargs={"poll_interval": 0.05}
+    )
+    thread.daemon = True
+    thread.start()
+    host, port = server.server_address
+    return server, thread, f"http://{host}:{port}"
+
+
+def _request(base, method, path, body=None):
+    data = json.dumps(body).encode() if body is not None else None
+    req = urllib.request.Request(
+        base + path,
+        data=data,
+        method=method,
+        headers={"Content-Type": "application/json"},
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            return resp.status, json.loads(resp.read().decode())
+    except urllib.error.HTTPError as exc:
+        return exc.code, json.loads(exc.read().decode())
+
+
+class HttpFixture(unittest.TestCase):
+    allow_create = False
+
+    @classmethod
+    def setUpClass(cls):
+        cls.server, cls.thread, cls.base = _start_server(
+            allow_create=cls.allow_create
+        )
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.server.shutdown()
+        cls.server.server_close()
+        cls.thread.join()
+
+
+class TestHealthz(HttpFixture):
+    def test_healthz_200_ok(self):
+        status, payload = _request(self.base, "GET", "/healthz")
+        self.assertEqual(status, 200)
+        self.assertTrue(payload["ok"], payload)
+
+
+class TestLinks(HttpFixture):
+    def test_links_post_returns_md_text(self):
+        status, payload = _request(
+            self.base,
+            "POST",
+            "/v1/links",
+            {
+                "org": "acme",
+                "repo": "lyra",
+                "ref": "abc1234",
+                "file": "index.svg",
+                "format": "md",
+            },
+        )
+        self.assertEqual(status, 200, payload)
+        self.assertTrue(payload["ok"], payload)
+        self.assertIn(
+            "- [cdn.jsdelivr.net]"
+            "(https://cdn.jsdelivr.net/gh/acme/lyra@abc1234/index.svg)",
+            payload["text"],
+        )
+
+
+class TestUnknownRoute(HttpFixture):
+    def test_unknown_path_404_json(self):
+        status, payload = _request(self.base, "GET", "/nope")
+        self.assertEqual(status, 404)
+        self.assertFalse(payload["ok"])
+        self.assertIn("error", payload)
+
+    def test_wrong_method_404_json(self):
+        status, payload = _request(self.base, "GET", "/v1/links")
+        self.assertEqual(status, 404)
+        self.assertFalse(payload["ok"])
+
+
+class TestCreateGate(HttpFixture):
+    def test_ensure_bucket_refused_without_allow_create(self):
+        status, payload = _request(
+            self.base, "POST", "/v1/ensure-bucket", {"bucket": "bkt"}
+        )
+        self.assertEqual(status, 403, payload)
+        self.assertFalse(payload["ok"], payload)
+        self.assertIn("allow-create", payload["error"].lower())
+
+    def test_ensure_repo_refused_without_allow_create(self):
+        status, payload = _request(
+            self.base,
+            "POST",
+            "/v1/ensure-repo",
+            {"org": "acme", "repo": "lyra"},
+        )
+        self.assertEqual(status, 403, payload)
+        self.assertFalse(payload["ok"], payload)
+
+
+class TestAllowedCreate(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.server, cls.thread, cls.base = _start_server(allow_create=True)
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.server.shutdown()
+        cls.server.server_close()
+        cls.thread.join()
+
+    def test_ensure_bucket_allowed_calls_through(self):
+        with mock.patch(
+            "starfield.http_server.gcs_ops.ensure_bucket",
+            return_value={"created": True},
+        ) as m:
+            status, payload = _request(
+                self.base, "POST", "/v1/ensure-bucket", {"bucket": "bkt"}
+            )
+        self.assertEqual(status, 200, payload)
+        self.assertTrue(payload["ok"], payload)
+        self.assertTrue(payload["created"])
+        m.assert_called_once()
+
+
+class TestPassthrough(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.server, cls.thread, cls.base = _start_server(allow_create=True)
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.server.shutdown()
+        cls.server.server_close()
+        cls.thread.join()
+
+    def test_verify_passes_through(self):
+        with mock.patch(
+            "starfield.http_server.verify.check",
+            return_value={
+                "ok": True,
+                "status": 200,
+                "bytes": 3,
+                "content_type": "text/plain",
+            },
+        ):
+            status, payload = _request(
+                self.base,
+                "POST",
+                "/v1/verify",
+                {"url": "http://example.invalid/ok"},
+            )
+        self.assertEqual(status, 200, payload)
+        self.assertTrue(payload["ok"], payload)
+        self.assertEqual(payload["status"], 200)
+
+    def test_gh_list_get(self):
+        with mock.patch(
+            "starfield.http_server.gh_ops.list_repos",
+            return_value=[{"name": "lyra"}],
+        ):
+            status, payload = _request(
+                self.base, "GET", "/v1/gh-list?org=acme"
+            )
+        self.assertEqual(status, 200, payload)
+        self.assertTrue(payload["ok"], payload)
+        self.assertEqual(payload["repos"], [{"name": "lyra"}])
+
+    def test_gcs_list_buckets_get(self):
+        with mock.patch(
+            "starfield.http_server.gcs_ops.list_buckets",
+            return_value=[{"name": "bkt"}],
+        ):
+            status, payload = _request(self.base, "GET", "/v1/gcs-list")
+        self.assertEqual(status, 200, payload)
+        self.assertTrue(payload["ok"], payload)
+        self.assertEqual(payload["buckets"], [{"name": "bkt"}])
+
+    def test_missing_param_400_json(self):
+        status, payload = _request(self.base, "POST", "/v1/verify", {})
+        self.assertEqual(status, 400, payload)
+        self.assertFalse(payload["ok"], payload)
+
+
+class TestServeCli(unittest.TestCase):
+    def test_serve_help_lists_port(self):
+        buf = io.StringIO()
+        try:
+            with redirect_stdout(buf), redirect_stderr(buf):
+                cli.main(["serve", "--help"])
+        except SystemExit:
+            pass
+        self.assertIn("--port", buf.getvalue())
+
+    def test_serve_invokes_http_server(self):
+        with mock.patch(
+            "starfield.http_server.serve", return_value=None
+        ) as m:
+            buf = io.StringIO()
+            with redirect_stdout(buf), redirect_stderr(buf):
+                code = cli.main(["serve", "--port", "8765"])
+        self.assertEqual(code, 0)
+        m.assert_called_once()
+        _, kwargs = m.call_args
+        self.assertEqual(kwargs.get("port", m.call_args[0][0] if m.call_args[0] else None), 8765)
+
+
+if __name__ == "__main__":
+    unittest.main()

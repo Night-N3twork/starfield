@@ -7,7 +7,7 @@ import json
 import sys
 from typing import Sequence
 
-from . import core, gcs_ops, gh_ops, verify
+from . import core, gcs_ops, gh_ops, http_server, verify
 
 
 def _stub(command: str) -> int:
@@ -115,6 +115,16 @@ def _run_gh_list(args: argparse.Namespace) -> int:
     return 0
 
 
+def _run_serve(args: argparse.Namespace) -> int:
+    http_server.serve(
+        port=args.port,
+        allow_create=args.allow_create,
+        timeout=args.timeout,
+        concurrency=args.concurrency,
+    )
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="starfield",
@@ -186,7 +196,10 @@ def build_parser() -> argparse.ArgumentParser:
 
     p = sub.add_parser("serve", help="run the HTTP server")
     p.add_argument("--port", type=int, default=8765)
-    p.set_defaults(func=lambda args: _stub("serve"))
+    p.add_argument("--allow-create", action="store_true")
+    p.add_argument("--timeout", type=int, default=300)
+    p.add_argument("--concurrency", type=int, default=8)
+    p.set_defaults(func=_run_serve)
 
     p = sub.add_parser("mcp", help="run the MCP stdio server")
     p.add_argument("--org", default=None)

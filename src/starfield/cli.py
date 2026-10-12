@@ -7,7 +7,7 @@ import json
 import sys
 from typing import Sequence
 
-from . import core, gh_ops
+from . import core, gcs_ops, gh_ops
 
 
 def _stub(command: str) -> int:
@@ -41,6 +41,52 @@ def _run_ensure_repo(args: argparse.Namespace) -> int:
         out = gh_ops.ensure_repo(
             org=args.org, repo=args.repo, public=args.public, timeout=args.timeout
         )
+    except core.CliError as exc:
+        print(exc.message, file=sys.stderr)
+        return 1
+    print(json.dumps(out, indent=2))
+    return 0
+
+
+def _run_gcs_upload(args: argparse.Namespace) -> int:
+    try:
+        out = gcs_ops.upload(
+            bucket=args.bucket,
+            folder=args.folder,
+            prefix=args.prefix,
+            cache_control=args.cache_control,
+            create_only=args.create_only,
+            dry_run=args.dry_run,
+            timeout=args.timeout,
+        )
+    except core.CliError as exc:
+        print(exc.message, file=sys.stderr)
+        return 1
+    print(json.dumps(out, indent=2))
+    return 0
+
+
+def _run_ensure_bucket(args: argparse.Namespace) -> int:
+    try:
+        out = gcs_ops.ensure_bucket(
+            bucket=args.bucket,
+            location=args.location,
+            public=args.public,
+            timeout=args.timeout,
+        )
+    except core.CliError as exc:
+        print(exc.message, file=sys.stderr)
+        return 1
+    print(json.dumps(out, indent=2))
+    return 0
+
+
+def _run_gcs_list(args: argparse.Namespace) -> int:
+    try:
+        if args.bucket is None:
+            out = gcs_ops.list_buckets(timeout=args.timeout)
+        else:
+            out = gcs_ops.list_objects(args.bucket, timeout=args.timeout)
     except core.CliError as exc:
         print(exc.message, file=sys.stderr)
         return 1
@@ -85,7 +131,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--cache-control", default=None)
     p.add_argument("--create-only", action="store_true")
     p.add_argument("--dry-run", action="store_true")
-    p.set_defaults(func=lambda args: _stub("gcs-upload"))
+    p.add_argument("--timeout", type=int, default=300)
+    p.set_defaults(func=_run_gcs_upload)
 
     p = sub.add_parser("ensure-repo", help="create org/repo if missing")
     p.add_argument("--org", required=True)
@@ -100,11 +147,13 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--bucket", required=True)
     p.add_argument("--location", default="us-central1")
     p.add_argument("--public", action="store_true")
-    p.set_defaults(func=lambda args: _stub("ensure-bucket"))
+    p.add_argument("--timeout", type=int, default=60)
+    p.set_defaults(func=_run_ensure_bucket)
 
     p = sub.add_parser("gcs-list", help="list buckets or object summary")
     p.add_argument("--bucket", default=None)
-    p.set_defaults(func=lambda args: _stub("gcs-list"))
+    p.add_argument("--timeout", type=int, default=60)
+    p.set_defaults(func=_run_gcs_list)
 
     p = sub.add_parser("gh-list", help="list repos in an org")
     p.add_argument("--org", required=True)

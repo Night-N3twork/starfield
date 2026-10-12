@@ -7,7 +7,7 @@ import json
 import sys
 from typing import Sequence
 
-from . import core, gcs_ops, gh_ops
+from . import core, gcs_ops, gh_ops, verify
 
 
 def _stub(command: str) -> int:
@@ -94,6 +94,17 @@ def _run_gcs_list(args: argparse.Namespace) -> int:
     return 0
 
 
+def _run_verify(args: argparse.Namespace) -> int:
+    out = verify.check(
+        url=args.url,
+        sha256=args.sha256,
+        mime=args.mime,
+        min_bytes=args.min_bytes if args.min_bytes is not None else 1,
+    )
+    print(json.dumps(out, indent=2))
+    return 0 if out["ok"] else 1
+
+
 def _run_gh_list(args: argparse.Namespace) -> int:
     try:
         out = gh_ops.list_repos(org=args.org, timeout=args.timeout)
@@ -165,7 +176,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--sha256", required=True)
     p.add_argument("--mime", default=None)
     p.add_argument("--min-bytes", type=int, default=None)
-    p.set_defaults(func=lambda args: _stub("verify"))
+    p.set_defaults(func=_run_verify)
 
     p = sub.add_parser("links", help="mirror URLs for org/repo@ref")
     p.add_argument("--org", required=True)

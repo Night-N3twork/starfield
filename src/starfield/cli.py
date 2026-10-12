@@ -1,0 +1,103 @@
+"""Argparse CLI skeleton (Task 1). Subcommands are stubs until later tasks."""
+
+from __future__ import annotations
+
+import argparse
+import sys
+from typing import Sequence
+
+from . import core
+
+
+def _stub(command: str) -> int:
+    result = core.not_implemented(command)
+    print(result.error, file=sys.stderr)
+    return 1
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog="starfield",
+        description="Push folders to GitHub repos and/or GCS buckets, "
+        "then verify and list mirror links.",
+    )
+    sub = parser.add_subparsers(dest="command", metavar="<command>")
+
+    p = sub.add_parser("gh-sync", help="push a folder to org/repo@branch")
+    p.add_argument("--org", required=True)
+    p.add_argument("--repo", required=True)
+    p.add_argument("--folder", required=True)
+    p.add_argument("--branch", default="main")
+    p.add_argument("--message", default=None)
+    p.add_argument("--no-delete", action="store_true")
+    p.add_argument("--dry-run", action="store_true")
+    p.set_defaults(func=lambda args: _stub("gh-sync"))
+
+    p = sub.add_parser("gcs-upload", help="gzip-upload a folder to a bucket")
+    p.add_argument("--bucket", required=True)
+    p.add_argument("--folder", required=True)
+    p.add_argument("--prefix", default="")
+    p.add_argument("--cache-control", default=None)
+    p.add_argument("--create-only", action="store_true")
+    p.add_argument("--dry-run", action="store_true")
+    p.set_defaults(func=lambda args: _stub("gcs-upload"))
+
+    p = sub.add_parser("ensure-repo", help="create org/repo if missing")
+    p.add_argument("--org", required=True)
+    p.add_argument("--repo", required=True)
+    vis = p.add_mutually_exclusive_group()
+    vis.add_argument("--public", action="store_true")
+    vis.add_argument("--private", action="store_true")
+    p.set_defaults(func=lambda args: _stub("ensure-repo"))
+
+    p = sub.add_parser("ensure-bucket", help="create bucket if missing")
+    p.add_argument("--bucket", required=True)
+    p.add_argument("--location", default="us-central1")
+    p.add_argument("--public", action="store_true")
+    p.set_defaults(func=lambda args: _stub("ensure-bucket"))
+
+    p = sub.add_parser("gcs-list", help="list buckets or object summary")
+    p.add_argument("--bucket", default=None)
+    p.set_defaults(func=lambda args: _stub("gcs-list"))
+
+    p = sub.add_parser("gh-list", help="list repos in an org")
+    p.add_argument("--org", required=True)
+    p.set_defaults(func=lambda args: _stub("gh-list"))
+
+    p = sub.add_parser("verify", help="GET a URL and compare sha256")
+    p.add_argument("--url", required=True)
+    p.add_argument("--sha256", required=True)
+    p.add_argument("--mime", default=None)
+    p.add_argument("--min-bytes", type=int, default=None)
+    p.set_defaults(func=lambda args: _stub("verify"))
+
+    p = sub.add_parser("links", help="mirror URLs for org/repo@ref")
+    p.add_argument("--org", required=True)
+    p.add_argument("--repo", required=True)
+    p.add_argument("--ref", required=True)
+    p.set_defaults(func=lambda args: _stub("links"))
+
+    p = sub.add_parser("serve", help="run the HTTP server")
+    p.add_argument("--port", type=int, default=8765)
+    p.set_defaults(func=lambda args: _stub("serve"))
+
+    p = sub.add_parser("mcp", help="run the MCP stdio server")
+    p.add_argument("--org", default=None)
+    p.add_argument("--bucket", default=None)
+    p.add_argument("--allow-create", action="store_true")
+    p.add_argument("--read-only", action="store_true")
+    p.add_argument("--timeout", type=int, default=300)
+    p.add_argument("--concurrency", type=int, default=8)
+    p.set_defaults(func=lambda args: _stub("mcp"))
+
+    return parser
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    """CLI entry point. Returns a process exit code."""
+    parser = build_parser()
+    args = parser.parse_args(argv)
+    if getattr(args, "func", None) is None:
+        parser.print_help()
+        return 0
+    return int(args.func(args))

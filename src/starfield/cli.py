@@ -3,16 +3,59 @@
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 from typing import Sequence
 
-from . import core
+from . import core, gh_ops
 
 
 def _stub(command: str) -> int:
     result = core.not_implemented(command)
     print(result.error, file=sys.stderr)
     return 1
+
+
+def _run_gh_sync(args: argparse.Namespace) -> int:
+    try:
+        out = gh_ops.sync(
+            org=args.org,
+            repo=args.repo,
+            folder=args.folder,
+            branch=args.branch,
+            message=args.message,
+            delete=not args.no_delete,
+            dry_run=args.dry_run,
+            workdir=args.workdir,
+            timeout=args.timeout,
+        )
+    except core.CliError as exc:
+        print(exc.message, file=sys.stderr)
+        return 1
+    print(json.dumps(out, indent=2))
+    return 0
+
+
+def _run_ensure_repo(args: argparse.Namespace) -> int:
+    try:
+        out = gh_ops.ensure_repo(
+            org=args.org, repo=args.repo, public=args.public, timeout=args.timeout
+        )
+    except core.CliError as exc:
+        print(exc.message, file=sys.stderr)
+        return 1
+    print(json.dumps(out, indent=2))
+    return 0
+
+
+def _run_gh_list(args: argparse.Namespace) -> int:
+    try:
+        out = gh_ops.list_repos(org=args.org, timeout=args.timeout)
+    except core.CliError as exc:
+        print(exc.message, file=sys.stderr)
+        return 1
+    print(json.dumps(out, indent=2))
+    return 0
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -31,7 +74,9 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--message", default=None)
     p.add_argument("--no-delete", action="store_true")
     p.add_argument("--dry-run", action="store_true")
-    p.set_defaults(func=lambda args: _stub("gh-sync"))
+    p.add_argument("--workdir", default=None)
+    p.add_argument("--timeout", type=int, default=300)
+    p.set_defaults(func=_run_gh_sync)
 
     p = sub.add_parser("gcs-upload", help="gzip-upload a folder to a bucket")
     p.add_argument("--bucket", required=True)
@@ -48,7 +93,8 @@ def build_parser() -> argparse.ArgumentParser:
     vis = p.add_mutually_exclusive_group()
     vis.add_argument("--public", action="store_true")
     vis.add_argument("--private", action="store_true")
-    p.set_defaults(func=lambda args: _stub("ensure-repo"))
+    p.add_argument("--timeout", type=int, default=60)
+    p.set_defaults(func=_run_ensure_repo)
 
     p = sub.add_parser("ensure-bucket", help="create bucket if missing")
     p.add_argument("--bucket", required=True)
@@ -62,7 +108,8 @@ def build_parser() -> argparse.ArgumentParser:
 
     p = sub.add_parser("gh-list", help="list repos in an org")
     p.add_argument("--org", required=True)
-    p.set_defaults(func=lambda args: _stub("gh-list"))
+    p.add_argument("--timeout", type=int, default=60)
+    p.set_defaults(func=_run_gh_list)
 
     p = sub.add_parser("verify", help="GET a URL and compare sha256")
     p.add_argument("--url", required=True)

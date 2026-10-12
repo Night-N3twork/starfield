@@ -157,6 +157,12 @@ def _handler_class(allow_create: bool, default_timeout: float):
             except (TypeError, ValueError):
                 return float(default_timeout)
 
+        def _qtimeout(self, query: dict) -> float:
+            try:
+                return float(query.get("timeout", default_timeout))
+            except (TypeError, ValueError):
+                return float(default_timeout)
+
         def _handle_gh_sync(self, body: dict) -> None:
             missing = _missing(body, "org", "repo", "folder")
             if missing:
@@ -282,7 +288,7 @@ def _handler_class(allow_create: bool, default_timeout: float):
             if not query.get("org"):
                 self._send_json(400, {"ok": False, "error": "missing org"})
                 return
-            timeout = float(query.get("timeout", default_timeout))
+            timeout = self._qtimeout(query)
             try:
                 repos = gh_ops.list_repos(
                     org=query["org"], timeout=timeout
@@ -293,7 +299,7 @@ def _handler_class(allow_create: bool, default_timeout: float):
             self._send_json(200, {"ok": True, "repos": repos})
 
         def _handle_gcs_list(self, query: dict) -> None:
-            timeout = float(query.get("timeout", default_timeout))
+            timeout = self._qtimeout(query)
             try:
                 if query.get("bucket"):
                     objects = gcs_ops.list_objects(

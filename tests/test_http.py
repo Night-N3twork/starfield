@@ -202,6 +202,85 @@ class TestPassthrough(unittest.TestCase):
         self.assertTrue(payload["ok"], payload)
         self.assertEqual(payload["buckets"], [{"name": "bkt"}])
 
+    def test_gh_sync_passthrough_forwards_kwargs(self):
+        with mock.patch(
+            "starfield.http_server.gh_ops.sync",
+            return_value={"sha": "abc", "changed": True, "pushed": True},
+        ) as m:
+            status, payload = _request(
+                self.base,
+                "POST",
+                "/v1/gh-sync",
+                {
+                    "org": "acme",
+                    "repo": "lyra",
+                    "folder": "/tmp/site",
+                    "branch": "main",
+                },
+            )
+        self.assertEqual(status, 200, payload)
+        self.assertTrue(payload["ok"], payload)
+        self.assertEqual(payload["sha"], "abc")
+        m.assert_called_once_with(
+            org="acme",
+            repo="lyra",
+            folder="/tmp/site",
+            branch="main",
+            message=None,
+            delete=True,
+            dry_run=False,
+            workdir=None,
+            timeout=300,
+        )
+
+    def test_gcs_upload_passthrough_forwards_kwargs(self):
+        with mock.patch(
+            "starfield.http_server.gcs_ops.upload",
+            return_value={"raw_bytes": 10, "stored_bytes": 12, "files": []},
+        ) as m:
+            status, payload = _request(
+                self.base,
+                "POST",
+                "/v1/gcs-upload",
+                {"bucket": "bkt", "folder": "/tmp/site", "prefix": "p"},
+            )
+        self.assertEqual(status, 200, payload)
+        self.assertTrue(payload["ok"], payload)
+        self.assertEqual(payload["raw_bytes"], 10)
+        m.assert_called_once_with(
+            bucket="bkt",
+            folder="/tmp/site",
+            prefix="p",
+            cache_control=None,
+            create_only=False,
+            dry_run=False,
+            timeout=300,
+        )
+
+    def test_gh_list_invalid_timeout_falls_back(self):
+        with mock.patch(
+            "starfield.http_server.gh_ops.list_repos",
+            return_value=[],
+        ) as m:
+            status, payload = _request(
+                self.base, "GET", "/v1/gh-list?org=acme&timeout=abc"
+            )
+        self.assertEqual(status, 200, payload)
+        self.assertTrue(payload["ok"], payload)
+        m.assert_called_once_with(org="acme", timeout=300)
+
+    def test_gcs_list_invalid_timeout_falls_back(self):
+        with mock.patch(
+            "starfield.http_server.gcs_ops.list_buckets",
+            return_value=[],
+        ) as m:
+            status, payload = _request(
+                self.base, "GET", "/v1/gcs-list?timeout=abc"
+            )
+        self.assertEqual(status, 200, payload)
+        self.assertTrue(payload["ok"], payload)
+        m.assert_called_once_with(timeout=300)
+
     def test_missing_param_400_json(self):
         status, payload = _request(self.base, "POST", "/v1/verify", {})
         self.assertEqual(status, 400, payload)

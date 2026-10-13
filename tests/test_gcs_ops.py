@@ -223,6 +223,15 @@ class TestStage(GcsOpsTestBase):
         self.assertEqual(item.cache_control, "no-cache,no-transform")
 
 
+    def test_stage_skips_hidden_files_and_dirs(self):
+        with tempfile.TemporaryDirectory() as d:
+            Path(d, ".build-id").write_text("x")
+            Path(d, ".hidden-dir").mkdir()
+            Path(d, ".hidden-dir", "junk.js").write_text("y")
+            Path(d, "index.html").write_text("<html></html>")
+            names = [s.name for s in self.gcs_ops.stage(d)]
+            self.assertEqual(names, ["index.html"])
+
 class TestUpload(GcsOpsTestBase):
     FILES = {
         "static/app-a1b2c3d4.js": b"dep",

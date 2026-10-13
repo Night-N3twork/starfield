@@ -111,7 +111,10 @@ def stage(folder: str) -> list[Staged]:
     if not src.is_dir():
         raise core.CliError(f"folder not found: {folder}")
     staged: list[Staged] = []
-    files = sorted(p for p in src.rglob("*") if p.is_file())
+    files = sorted(
+        p for p in src.rglob("*")
+        if p.is_file() and not any(part.startswith(".") for part in p.relative_to(src).parts)
+    )
     for path in files:
         rel = path.relative_to(src).as_posix()
         raw = path.read_bytes()

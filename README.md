@@ -156,10 +156,13 @@ starfield links --org ORG --repo REPO --ref REF [--file index.html]
                 [--format plain]
 ```
 
-Renders one URL per alive mirror host (22 hosts, 2026-10-12 probe) for the
+Renders one URL per alive mirror host (17 hosts, corrected 2026-10-13;
+was 22 in the 2026-10-12 probe) for the
 given file. `--format` is `plain` (one URL per line, the default), `md`
 (one `- [host](url)` bullet per line), or `json` (array of
-`{"host", "url"}` objects). URL shapes per host family:
+`{"host", "url"}` objects). `--check` fetches each URL first and drops
+unreachable hosts (annotated as `# DEAD` lines, or `alive`/`detail`
+fields in json). URL shapes per host family:
 
 - jsDelivr-compat: `https://HOST/gh/ORG/REPO@REF/FILE`
 - statically: `https://HOST/gh/ORG/REPO/REF/FILE`

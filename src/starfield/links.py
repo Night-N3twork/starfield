@@ -1,19 +1,22 @@
-"""Mirror-link URL builders + alive/dead host tables (Task 2).
+"""Mirror-link URL builders + alive/dead host tables.
 
-Codifies the 2026-10-12 probe: 22 alive hosts across four URL shapes
-(jsDelivr-compat, statically, githack/raw-githubusercontent, esm.sh)
-plus 22 known-dead hosts with reasons.
+Codifies CDN-mirror availability: 17 alive hosts across three URL shapes
+(jsDelivr-compat, githack, esm.sh) plus 27 known-dead hosts with reasons,
+last corrected 2026-10-13 after user browser checks retired five hosts
+that the 2026-10-12 probe had marked alive.
 
 Shapes (ORG/REPO/REF/FILE placeholders):
   jsDelivr-compat:  https://HOST/gh/ORG/REPO@REF/FILE
-  statically:       https://HOST/gh/ORG/REPO/REF/FILE
-  githack/raw:      https://HOST/ORG/REPO/REF/FILE
+  githack:          https://HOST/ORG/REPO/REF/FILE
   esm.sh:           https://HOST/gh/ORG/REPO@REF/FILE
 """
 
 from __future__ import annotations
 
+import concurrent.futures
 import json
+
+from . import verify
 
 #: Hosts serving the jsDelivr-compat `/gh/ORG/REPO@REF/FILE` shape.
 JSDELIVR_HOSTS = (
@@ -28,30 +31,23 @@ JSDELIVR_HOSTS = (
     "testingcf.jsdelivr.net",
     "jsdelivr.codeqihan.com",
     "jsd.nmmsl.top",
-    "cdn.bili33.top",
     "jsd.yizex.cn",
     "cdn.jsdelivr.net.cn",
     "jsd-proxy.ygxz.in",
 )
 
-#: Host serving the statically `/gh/ORG/REPO/REF/FILE` shape.
-STATICALLY_HOSTS = ("cdn.statically.io",)
-
 #: Hosts serving the githack `/ORG/REPO/REF/FILE` shape.
 GITHACK_HOSTS = ("rawcdn.githack.com", "raw.githack.com")
 
-#: Host serving the raw `/ORG/REPO/REF/FILE` shape.
-RAW_GITHUB_HOSTS = ("raw.githubusercontent.com",)
-
 #: Hosts serving the esm.sh `/gh/ORG/REPO@REF/FILE` shape.
-ESM_HOSTS = ("esm.sh", "raw.esm.sh", "cdn.esm.sh")
+#: `raw.esm.sh` serves bytes differing from other mirrors but is
+#: user-confirmed working in a real browser.
+ESM_HOSTS = ("raw.esm.sh",)
 
-#: Every alive host from the 2026-10-12 probe, in stable output order.
+#: Every alive host, in stable output order.
 ALIVE_HOSTS = (
     *JSDELIVR_HOSTS,
-    *STATICALLY_HOSTS,
     *GITHACK_HOSTS,
-    *RAW_GITHUB_HOSTS,
     *ESM_HOSTS,
 )
 
@@ -83,6 +79,12 @@ DEAD_HOSTS = {
     # Wrong content (not the raw file).
     "cdn.onmicrosoft.cn": "wrong content",
     "github.com": "wrong content (blob page, not the raw file)",
+    # Retired 2026-10-13 after user browser checks (alive in 2026-10-12 probe).
+    "raw.githubusercontent.com": "HTTP 404 (verified 2026-10-13)",
+    "cdn.bili33.top": "blocked from reporter network; serves correctly elsewhere",
+    "esm.sh": "wrong content (2455B served vs expected file)",
+    "cdn.esm.sh": "wrong content (2455B served vs expected file)",
+    "cdn.statically.io": "wrong content (2626B served vs expected file)",
 }
 
 
@@ -115,33 +117,74 @@ def _url_for(host: str, org: str, repo: str, ref: str, file: str) -> str:
     """Dispatch `host` to the builder matching its URL shape."""
     if host in JSDELIVR_HOSTS:
         return jsdelivr_url(host, org, repo, ref, file)
-    if host in STATICALLY_HOSTS:
-        return statically_url(host, org, repo, ref, file)
     if host in GITHACK_HOSTS:
         return githack_url(host, org, repo, ref, file)
-    if host in RAW_GITHUB_HOSTS:
-        return raw_github_url(host, org, repo, ref, file)
     if host in ESM_HOSTS:
         return esm_url(host, org, repo, ref, file)
     raise ValueError(f"unknown mirror host: {host}")
 
 
+def _check_one(args: tuple[str, str, float]) -> tuple[str, str, bool, str]:
+    """GET one URL; return (host, url, alive, detail)."""
+    host, url, timeout = args
+    try:
+        out = verify.check(url, min_bytes=1, timeout=timeout)
+    except Exception as exc:
+        return host, url, False, str(exc)[:160]
+    if out.get("ok"):
+        return host, url, True, ""
+    return host, url, False, str(out.get("error", "failed"))[:160]
+
+
 def mirror_urls(
-    org: str, repo: str, ref: str, file: str, format: str = "plain"
+    org: str,
+    repo: str,
+    ref: str,
+    file: str,
+    format: str = "plain",
+    check: bool = False,
+    timeout: float = 60,
 ) -> str:
     """Render mirror URLs for every alive host as a string.
 
     `format` is `"plain"` (one URL per line), `"md"` (one
     `- [host](url)` bullet per line), or `"json"` (a JSON array of
     `{"host", "url"}` objects). Anything else raises `ValueError`.
+
+    With `check=True` every URL is fetched first (8 at a time):
+    unreachable hosts are dropped from the listing and reported as
+    `# DEAD <url> (<detail>)` lines (plain/md), while `json` objects
+    gain `"alive"`/`"detail"` fields.
     """
     pairs = [(host, _url_for(host, org, repo, ref, file)) for host in ALIVE_HOSTS]
+    dead: list[tuple[str, str]] = []
+    if check:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=8) as pool:
+            results = pool.map(
+                _check_one, [(url_host[0], url_host[1], timeout) for url_host in pairs]
+            )
+        alive_pairs = []
+        for host, url, alive, detail in results:
+            if alive:
+                alive_pairs.append((host, url))
+            else:
+                dead.append((url, detail))
+        pairs = alive_pairs
     if format == "plain":
-        return "\n".join(url for _, url in pairs)
-    if format == "md":
-        return "\n".join(f"- [{host}]({url})" for host, url in pairs)
-    if format == "json":
-        return json.dumps(
-            [{"host": host, "url": url} for host, url in pairs], indent=2
-        )
-    raise ValueError(f"unknown format: {format!r} (want plain|md|json)")
+        lines = [url for _, url in pairs]
+    elif format == "md":
+        lines = [f"- [{host}]({url})" for host, url in pairs]
+    elif format == "json":
+        objs: list[dict[str, object]] = [{"host": host, "url": url} for host, url in pairs]
+        if check:
+            objs = [
+                {**o, "alive": True, "detail": ""} for o in objs
+            ] + [
+                {"host": "", "url": url, "alive": False, "detail": detail}
+                for url, detail in dead
+            ]
+        return json.dumps(objs, indent=2)
+    else:
+        raise ValueError(f"unknown format: {format!r} (want plain|md|json)")
+    lines.extend(f"# DEAD {url} ({detail})" for url, detail in dead)
+    return "\n".join(lines)

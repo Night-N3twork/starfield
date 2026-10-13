@@ -278,6 +278,8 @@ def _handler_class(allow_create: bool, default_timeout: float):
                     body["ref"],
                     body.get("file", "index.html"),
                     format=fmt,
+                    check=bool(body.get("check", False)),
+                    timeout=self._timeout(body),
                 )
             except ValueError as exc:
                 self._send_json(400, {"ok": False, "error": str(exc)})

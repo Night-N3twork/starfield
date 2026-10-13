@@ -118,7 +118,12 @@ def _run_gh_list(args: argparse.Namespace) -> int:
 def _run_links(args: argparse.Namespace) -> int:
     try:
         text = links.mirror_urls(
-            args.org, args.repo, args.ref, args.file, format=args.format
+            args.org,
+            args.repo,
+            args.ref,
+            args.file,
+            format=args.format,
+            check=args.check,
         )
     except ValueError as exc:
         print(str(exc), file=sys.stderr)
@@ -230,6 +235,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--ref", required=True)
     p.add_argument("--file", default="index.html")
     p.add_argument("--format", default="plain", choices=("plain", "md", "json"))
+    p.add_argument("--check", action="store_true",
+                   help="fetch each URL and drop unreachable hosts")
     p.set_defaults(func=_run_links)
 
     p = sub.add_parser("serve", help="run the HTTP server")

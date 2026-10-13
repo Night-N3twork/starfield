@@ -146,7 +146,7 @@ TOOL_DEFS: list[dict[str, Any]] = [
     },
     {
         "name": "list_mirrors",
-        "description": "Render mirror URLs for org/repo@ref.",
+        "description": "Render mirror URLs for org/repo@ref (check=True verifies each live).",
         "inputSchema": _schema(
             {
                 "org": {"type": "string"},
@@ -154,6 +154,8 @@ TOOL_DEFS: list[dict[str, Any]] = [
                 "ref": {"type": "string"},
                 "file": {"type": "string"},
                 "format": {"type": "string"},
+                "check": {"type": "boolean"},
+                "timeout": {"type": "number"},
             },
             ["org", "repo", "ref"],
         ),
@@ -303,6 +305,8 @@ def _call_tool(
                     args["ref"],
                     args.get("file", "index.html"),
                     format=fmt,
+                    check=bool(args.get("check", False)),
+                    timeout=_timeout(args, timeout),
                 )
             except ValueError as exc:
                 return _err(str(exc))

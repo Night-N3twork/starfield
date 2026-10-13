@@ -92,18 +92,16 @@ class TestMirrorUrls(unittest.TestCase):
 
 class TestTables(unittest.TestCase):
     def test_alive_hosts_count_and_spot_checks(self):
-        self.assertEqual(len(links.ALIVE_HOSTS), 22)
+        self.assertEqual(len(links.ALIVE_HOSTS), 17)
         for host in (
             "cdn.jsdelivr.net",
-            "cdn.statically.io",
             "raw.githack.com",
-            "raw.githubusercontent.com",
-            "esm.sh",
+            "raw.esm.sh",
         ):
             self.assertIn(host, links.ALIVE_HOSTS)
 
     def test_dead_hosts_count_and_reasons(self):
-        self.assertEqual(len(links.DEAD_HOSTS), 22)
+        self.assertEqual(len(links.DEAD_HOSTS), 27)
         self.assertIn("connection", links.DEAD_HOSTS["testingcdn.jsdelivr.net"].lower())
         self.assertIn("404", links.DEAD_HOSTS["script.google.com"])
         self.assertIn("403", links.DEAD_HOSTS["code.webcache.cn"])
@@ -121,3 +119,47 @@ class TestTables(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+class TestMirrorRecheck(unittest.TestCase):
+    RECENTLY_DEAD = (
+        "raw.githubusercontent.com",
+        "cdn.bili33.top",
+        "esm.sh",
+        "cdn.esm.sh",
+        "cdn.statically.io",
+    )
+
+    def test_recently_dead_hosts_left_the_alive_table(self):
+        import starfield.links as links
+
+        for host in self.RECENTLY_DEAD:
+            self.assertNotIn(host, links.ALIVE_HOSTS)
+            self.assertIn(host, links.DEAD_HOSTS)
+
+    def test_check_filters_unreachable_and_annotates(self):
+        import starfield.links as links
+
+        real_check = links.verify.check
+
+        def fake_check(url, min_bytes=1, timeout=60):
+            if "cdn.jsdelivr.net" in url:
+                return {"ok": False, "status": 403, "bytes": 0,
+                        "content_type": "", "error": "GET x: HTTP 403"}
+            return {"ok": True, "status": 200, "bytes": 10,
+                    "content_type": "image/svg+xml"}
+
+        links.verify.check = fake_check
+        try:
+            out = links.mirror_urls("o", "r", "abc", "index.svg", check=True)
+        finally:
+            links.verify.check = real_check
+        self.assertNotIn("cdn.jsdelivr.net/gh/o/r@abc/index.svg\n", out)
+        self.assertIn("# DEAD", out)
+        self.assertIn("403", out)
+
+    def test_no_check_keeps_legacy_output(self):
+        import starfield.links as links
+
+        out = links.mirror_urls("o", "r", "abc", "index.svg")
+        self.assertNotIn("# DEAD", out)
+        self.assertIn("https://cdn.jsdelivr.net/gh/o/r@abc/index.svg", out)

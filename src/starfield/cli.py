@@ -233,7 +233,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--org", required=True)
     p.add_argument("--repo", required=True)
     p.add_argument("--ref", required=True)
-    p.add_argument("--file", default="index.html")
+    p.add_argument("--file", default="index.svg")
     p.add_argument("--format", default="plain", choices=("plain", "md", "json"))
     p.add_argument("--check", action="store_true",
                    help="fetch each URL and drop unreachable hosts")

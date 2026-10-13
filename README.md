@@ -107,7 +107,9 @@ starfield ensure-repo --org ORG --repo REPO [--public | --private]
                       [--timeout 60]
 ```
 
-Default visibility is private unless `--public` is given. Reports whether
+Default visibility is private unless `--public` is given. Mirror links
+only resolve for **public** repos, so mirror deployments must pass
+`--public`. Reports whether
 the repo already existed or was created.
 
 ### `ensure-bucket` — create a bucket when missing
@@ -152,7 +154,7 @@ failure.
 ### `links` — mirror URLs for `org/repo@ref`
 
 ```sh
-starfield links --org ORG --repo REPO --ref REF [--file index.html]
+starfield links --org ORG --repo REPO --ref REF [--file index.svg]
                 [--format plain]
 ```
 
@@ -205,7 +207,7 @@ answer 404 JSON.
 | `POST` | `/v1/ensure-repo` | `org`, `repo`; optional `public`. Needs `--allow-create` or 403 |
 | `POST` | `/v1/ensure-bucket` | `bucket`; optional `location` (default `"us-central1"`), `public`. Needs `--allow-create` or 403 |
 | `POST` | `/v1/verify` | `url`; optional `sha256`, `mime`, `min_bytes` (default `1`) |
-| `POST` | `/v1/links` | `org`, `repo`, `ref`; optional `file` (default `"index.html"`), `format` (`plain`/`md`/`json`, default `"plain"`) |
+| `POST` | `/v1/links` | `org`, `repo`, `ref`; optional `file` (default `"index.svg"` — mirrors are unreliable for `.html`), `format` (`plain`/`md`/`json`, default `"plain"`), `check` (live-verify each URL) |
 | `GET` | `/v1/gcs-list?bucket=` | no query: all buckets; `?bucket=B`: objects in `B`; optional `timeout` |
 | `GET` | `/v1/gh-list?org=` | `org` required; optional `timeout` |
 | `GET` | `/healthz` | — answers `{"ok": true}` |
@@ -235,7 +237,7 @@ never a dropped connection.
 | `gcs_list` | — | optional `bucket`, `timeout` |
 | `gh_list` | `org` | optional `timeout` |
 | `verify_deploy` | `url` | optional `sha256`, `mime`, `min_bytes`, `timeout` |
-| `list_mirrors` | `org` (or server `--org` default), `repo`, `ref` | optional `file` (default `"index.html"`), `format` (`plain`/`md`/`json`) |
+| `list_mirrors` | `org` (or server `--org` default), `repo`, `ref` | optional `file` (default `"index.svg"`), `format` (`plain`/`md`/`json`), `check` (live-verify) |
 
 Client-config snippet (stdio; substitute your org/bucket and flags —
 every flag below is a real `starfield mcp` flag):
@@ -295,7 +297,7 @@ Same flow for a second loader (example: repo `orion`, SHA `def5678`,
 plain format, first lines of real output):
 
 ```sh
-starfield links --org acme --repo orion --ref def5678 --file index.html
+starfield links --org acme --repo orion --ref def5678 --file index.svg
 ```
 
 ```text

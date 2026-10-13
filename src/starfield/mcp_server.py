@@ -303,7 +303,8 @@ def _call_tool(
                     resolved_org,
                     args["repo"],
                     args["ref"],
-                    args.get("file", "index.html"),
+                    # Mirrors are unreliable for .html; index.svg is the default entry.
+                    args.get("file", "index.svg"),
                     format=fmt,
                     check=bool(args.get("check", False)),
                     timeout=_timeout(args, timeout),

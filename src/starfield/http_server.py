@@ -276,7 +276,7 @@ def _handler_class(allow_create: bool, default_timeout: float):
                     body["org"],
                     body["repo"],
                     body["ref"],
-                    body.get("file", "index.html"),
+                    body.get("file", "index.svg"),
                     format=fmt,
                     check=bool(body.get("check", False)),
                     timeout=self._timeout(body),

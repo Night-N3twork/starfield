@@ -111,6 +111,16 @@ class TestListMirrors(unittest.TestCase):
         self.assertTrue(resp["result"]["isError"])
         self.assertIn("missing", _text(resp).lower())
 
+    def test_list_mirrors_defaults_to_index_svg(self):
+        # Mirrors are unreliable for .html; the default entry is index.svg.
+        (resp,) = _drive(
+            [_call("list_mirrors", {"org": "acme", "repo": "lyra", "ref": "abc1234"})]
+        )
+        payload = json.loads(_text(resp))
+        self.assertFalse(resp["result"]["isError"], payload)
+        self.assertIn("index.svg", payload["text"])
+        self.assertNotIn("index.html", payload["text"])
+
 
 class TestReadOnly(unittest.TestCase):
     def test_mutating_tools_refused_under_read_only(self):

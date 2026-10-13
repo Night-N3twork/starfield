@@ -486,5 +486,35 @@ class TestLive(unittest.TestCase):
             self.assertIn(b"starfield-live", raw)
 
 
+class TestVerifyTranscoding(GcsOpsTestBase):
+    def test_transcoded_identity_body_verifies(self):
+        src = self.make_source({"app.js": b"console.log(1);"})
+        (item,) = [s for s in self.gcs_ops.stage(str(src)) if s.name == "app.js"]
+        self.assertEqual(item.content_encoding, "gzip")
+        # GCS transcodes to identity when the client doesn't accept gzip:
+        # no content-encoding, raw bytes, raw length.
+        self.http.mapping = {"bkt/app.js": (
+            {"content-type": item.content_type,
+             "cache-control": item.cache_control,
+             "content-disposition": "inline",
+             "content-length": str(len(item.raw))},
+            item.raw)}
+        self.gcs_ops._verify_object("bkt", "app.js", item, item.cache_control, 60)
+
+    def test_403_names_the_public_read_remedy(self):
+        src = self.make_source({"a.txt": b"x"})
+        (item,) = self.gcs_ops.stage(str(src))
+        orig = self.http
+
+        def forbidden(url, timeout=60):
+            orig.urls.append(url)
+            return 403, {}, b"forbidden"
+
+        self.gcs_ops._http_get = forbidden
+        with self.assertRaises(core.CliError) as ctx:
+            self.gcs_ops._verify_object("bkt", "a.txt", item, item.cache_control, 60)
+        self.assertIn("allUsers", str(ctx.exception))
+
+
 if __name__ == "__main__":
     unittest.main()

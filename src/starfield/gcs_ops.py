@@ -158,12 +158,12 @@ def _public_url(bucket: str, obj: str) -> str:
 
 
 def _http_get(url: str, timeout: float = 60) -> tuple[int, dict, bytes]:
-    """GET `url` with identity encoding; return (status, headers, body).
+    """GET `url` accepting gzip; return (status, headers, body).
 
     Lowercases header names. HTTP errors surface as their status/body;
     connection-level failures raise `core.CliError`.
     """
-    req = urllib.request.Request(url, headers={"Accept-Encoding": "identity"})
+    req = urllib.request.Request(url, headers={"Accept-Encoding": "gzip"})
     try:
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             return (
@@ -191,6 +191,18 @@ def _verify_object(
     """Public-GET `obj` and compare every header/byte against `item`."""
     url = _public_url(bucket, obj)
     status, headers, body = _http_get(url, timeout=timeout)
+    if status == 403:
+        raise core.CliError(
+            f"verify {url}: HTTP 403 (hint: grant public read, then re-run "
+            f"the upload: gcloud storage buckets add-iam-policy-binding "
+            f"gs://{bucket} --member=allUsers "
+            f"--role=roles/storage.objectViewer)"
+        )
+    if status == 404:
+        raise core.CliError(
+            f"verify {url}: HTTP 404 (hint: the object is missing; re-run "
+            f"the upload)"
+        )
     if status != 200:
         raise core.CliError(f"verify {url}: HTTP {status}")
     mime = headers.get("content-type", "").split(";")[0].strip()
@@ -199,10 +211,16 @@ def _verify_object(
             f"verify {url}: content-type {mime!r} != {item.content_type!r}"
         )
     encoding = headers.get("content-encoding", "") or None
-    if encoding != item.content_encoding:
+    if encoding == item.content_encoding:
+        wire = item.data
+    elif item.content_encoding == "gzip" and not encoding:
+        # GCS transcoded to identity (client without gzip acceptance,
+        # intermediary, or re-serve): compare against the raw bytes.
+        wire = item.raw
+    else:
         raise core.CliError(
             f"verify {url}: content-encoding {encoding!r} != "
-            f"{item.content_encoding!r}"
+            f"{item.content_encoding!r} (hint: re-upload the object)"
         )
     if headers.get("content-disposition", "") != "inline":
         raise core.CliError(
@@ -215,20 +233,22 @@ def _verify_object(
             f"!= {cache!r}"
         )
     if "content-length" in headers and int(headers["content-length"]) != len(
-        item.data
+        wire
     ):
         raise core.CliError(
             f"verify {url}: content-length {headers['content-length']} "
-            f"!= {len(item.data)}"
+            f"!= {len(wire)}"
         )
-    if hashlib.md5(body).digest() != hashlib.md5(item.data).digest():
-        raise core.CliError(f"verify {url}: md5 mismatch")
+    if hashlib.md5(body).digest() != hashlib.md5(wire).digest():
+        raise core.CliError(f"verify {url}: md5 mismatch (hint: re-upload the object)")
     try:
-        decoded = gzip.decompress(body) if item.content_encoding == "gzip" else body
+        decoded = gzip.decompress(body) if encoding == "gzip" else body
     except Exception as exc:
         raise core.CliError(f"verify {url}: gunzip failed: {exc}") from exc
     if decoded != item.raw:
-        raise core.CliError(f"verify {url}: body bytes differ from source")
+        raise core.CliError(
+            f"verify {url}: body bytes differ from source (hint: re-upload the object)"
+        )
 
 
 def _bucket_describe(bucket: str, timeout: float) -> dict | None:

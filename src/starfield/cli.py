@@ -138,6 +138,18 @@ def _run_serve(args: argparse.Namespace) -> int:
 
 
 def _run_mcp(args: argparse.Namespace) -> int:
+    if getattr(args, "transport", "stdio") == "http":
+        from . import mcp_http
+
+        mcp_http.serve_mcp_http(
+            port=args.port,
+            org=args.org,
+            bucket=args.bucket,
+            allow_create=args.allow_create,
+            read_only=args.read_only,
+            timeout=args.timeout,
+        )
+        return 0
     mcp_server.run(
         org=args.org,
         bucket=args.bucket,
@@ -227,7 +239,9 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--concurrency", type=int, default=8)
     p.set_defaults(func=_run_serve)
 
-    p = sub.add_parser("mcp", help="run the MCP stdio server")
+    p = sub.add_parser("mcp", help="run the MCP server (stdio or HTTP)")
+    p.add_argument("--transport", default="stdio", choices=("stdio", "http"))
+    p.add_argument("--port", type=int, default=8765)
     p.add_argument("--org", default=None)
     p.add_argument("--bucket", default=None)
     p.add_argument("--allow-create", action="store_true")

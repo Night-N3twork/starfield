@@ -7,7 +7,7 @@ import json
 import sys
 from typing import Sequence
 
-from . import core, gcs_ops, gh_ops, http_server, mcp_server, verify
+from . import core, gcs_ops, gh_ops, http_server, links, mcp_server, verify
 
 
 def _stub(command: str) -> int:
@@ -115,6 +115,18 @@ def _run_gh_list(args: argparse.Namespace) -> int:
     return 0
 
 
+def _run_links(args: argparse.Namespace) -> int:
+    try:
+        text = links.mirror_urls(
+            args.org, args.repo, args.ref, args.file, format=args.format
+        )
+    except ValueError as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
+    print(text)
+    return 0
+
+
 def _run_serve(args: argparse.Namespace) -> int:
     http_server.serve(
         port=args.port,
@@ -204,7 +216,9 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--org", required=True)
     p.add_argument("--repo", required=True)
     p.add_argument("--ref", required=True)
-    p.set_defaults(func=lambda args: _stub("links"))
+    p.add_argument("--file", default="index.html")
+    p.add_argument("--format", default="plain", choices=("plain", "md", "json"))
+    p.set_defaults(func=_run_links)
 
     p = sub.add_parser("serve", help="run the HTTP server")
     p.add_argument("--port", type=int, default=8765)

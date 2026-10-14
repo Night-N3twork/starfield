@@ -310,5 +310,75 @@ class TestServeCli(unittest.TestCase):
         self.assertEqual(kwargs.get("port", m.call_args[0][0] if m.call_args[0] else None), 8765)
 
 
+class TestReadRoutes(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.server, cls.thread, cls.base = _start_server()
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.server.shutdown()
+        cls.server.server_close()
+
+    def _post(self, path, payload):
+        import urllib.error
+
+        req = urllib.request.Request(
+            self.base + path, data=json.dumps(payload).encode(),
+            headers={"Content-Type": "application/json"}, method="POST")
+        try:
+            with urllib.request.urlopen(req, timeout=30) as res:
+                return res.status, json.loads(res.read().decode())
+        except urllib.error.HTTPError as exc:
+            return exc.code, json.loads(exc.read().decode())
+
+    def test_public_check_passthrough(self):
+        with mock.patch(
+            "starfield.http_server.deploy_ops.public_check",
+            return_value={"bucket": "b", "public": True},
+        ):
+            status, body = self._post("/v1/gcs-public-check", {"bucket": "b"})
+        self.assertEqual(status, 200)
+        self.assertTrue(body["ok"])
+        self.assertTrue(body["public"])
+
+    def test_deploy_health_passthrough(self):
+        with mock.patch(
+            "starfield.http_server.deploy_ops.deploy_health",
+            return_value={"results": [], "passing": 0, "failing": []},
+        ):
+            status, body = self._post(
+                "/v1/deploy-health", {"urls": ["https://x/y.svg"]})
+        self.assertEqual(status, 200)
+        self.assertTrue(body["ok"])
+
+    def test_read_route_missing_field_is_400(self):
+        status, body = self._post("/v1/gcs-public-check", {})
+        self.assertEqual(status, 400)
+        self.assertFalse(body["ok"])
+
+
+class TestReadCliWiring(unittest.TestCase):
+    def test_new_commands_have_help(self):
+        for cmd in ("gcs-usage", "gcp-pricing", "deploy-diff", "deploy-health",
+                    "gcs-public-check"):
+            buf = io.StringIO()
+            with redirect_stdout(buf), redirect_stderr(buf):
+                with self.assertRaises(SystemExit) as ctx:
+                    cli.main([cmd, "--help"])
+            self.assertEqual(ctx.exception.code, 0, cmd)
+
+    def test_public_check_wiring(self):
+        with mock.patch(
+            "starfield.cli.deploy_ops.public_check",
+            return_value={"bucket": "b", "public": False},
+        ):
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                code = cli.main(["gcs-public-check", "--bucket", "b"])
+        self.assertEqual(code, 0)
+        self.assertIn('"public": false', buf.getvalue())
+
+
 if __name__ == "__main__":
     unittest.main()

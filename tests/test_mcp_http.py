@@ -34,7 +34,7 @@ class McpHttpTest(unittest.TestCase):
             self.assertEqual(status, 200)
             self.assertIn("protocolVersion", body["result"])
             _, listed = _post(base, {"jsonrpc": "2.0", "id": 2, "method": "tools/list"})
-            self.assertEqual(len(listed["result"]["tools"]), 8)
+            self.assertEqual(len(listed["result"]["tools"]), 24)
         finally:
             server.shutdown()
             server.server_close()

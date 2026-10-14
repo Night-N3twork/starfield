@@ -140,6 +140,33 @@ starfield gh-list --org ORG [--timeout 60]
 
 Lists repos (name/visibility/updated/pushed-at).
 
+### Analytics, billing, and deploy checks — read-only inspection
+
+```sh
+starfield gcs-usage --project P [--bucket B] [--days 30]
+starfield gcs-bucket-stats --project P --bucket B [--days 30]
+starfield gcs-object-stats --bucket B --object O
+starfield gcs-traffic-history --project P [--bucket B] [--days 30]
+starfield gcs-request-stats --project P [--bucket B] [--days 30]
+starfield gcs-top-objects --project P --bucket B [--days 7] [--limit 10]
+starfield gcs-audit-logs --project P [--bucket B] [--days 7] [--limit 50]
+starfield gcs-billing --project P [--dataset billing_export] [--days 30]
+starfield gcp-cost-summary --project P [--dataset billing_export] [--days 30]
+starfield gcp-cost-breakdown --project P [--group-by service|sku|project|day]
+starfield gcp-pricing --filter TEXT
+starfield gcp-cost-forecast --project P [--bucket B] [--days-history 30]
+                             [--days-ahead 30] [--rate-usd-per-gib R]
+starfield deploy-diff --folder DIR --bucket B [--prefix PFX]
+starfield deploy-health --urls U1 [U2 ...] [--sha256 HEX]
+starfield gcs-public-check --bucket B
+starfield gcs-iam-inspect --bucket B
+```
+
+All print JSON. Billing/usage-log tools report `enabled: false` with
+setup steps when the BigQuery export or bucket logging isn't configured,
+instead of failing. Forecasts are labeled estimates, never bills. There
+are no budget tools by design.
+
 ### `verify` — GET a URL and compare its sha256
 
 ```sh
@@ -210,6 +237,17 @@ answer 404 JSON.
 | `POST` | `/v1/links` | `org`, `repo`, `ref`; optional `file` (default `"index.svg"` — mirrors are unreliable for `.html`), `format` (`plain`/`md`/`json`, default `"plain"`), `check` (live-verify each URL) |
 | `GET` | `/v1/gcs-list?bucket=` | no query: all buckets; `?bucket=B`: objects in `B`; optional `timeout` |
 | `GET` | `/v1/gh-list?org=` | `org` required; optional `timeout` |
+| `POST` | `/v1/gcs-usage`, `/v1/gcs-traffic-history`, `/v1/gcs-request-stats` | `project`; optional `bucket`, `days` (default `30`) |
+| `POST` | `/v1/gcs-bucket-stats`, `/v1/gcs-top-objects` | `project`, `bucket`; optional `days`, `limit` |
+| `POST` | `/v1/gcs-object-stats` | `bucket`, `object` |
+| `POST` | `/v1/gcs-audit-logs` | `project`; optional `bucket`, `days`, `limit` |
+| `POST` | `/v1/gcs-billing`, `/v1/gcp-cost-summary` | `project`; optional `dataset`, `days` |
+| `POST` | `/v1/gcp-cost-breakdown` | `project`; optional `dataset`, `days`, `group_by` |
+| `POST` | `/v1/gcp-pricing` | `filter` |
+| `POST` | `/v1/gcp-cost-forecast` | `project`; optional `bucket`, `days_history`, `days_ahead`, `rate_usd_per_gib`, `free_gib` |
+| `POST` | `/v1/deploy-diff` | `folder`, `bucket`; optional `prefix` |
+| `POST` | `/v1/deploy-health` | `urls`; optional `sha256` |
+| `POST` | `/v1/gcs-public-check`, `/v1/gcs-iam-inspect` | `bucket` |
 | `GET` | `/healthz` | — answers `{"ok": true}` |
 
 Example (links needs no auth and touches no cloud CLIs):
@@ -238,6 +276,17 @@ never a dropped connection.
 | `gh_list` | `org` | optional `timeout` |
 | `verify_deploy` | `url` | optional `sha256`, `mime`, `min_bytes`, `timeout` |
 | `list_mirrors` | `org` (or server `--org` default), `repo`, `ref` | optional `file` (default `"index.svg"`), `format` (`plain`/`md`/`json`), `check` (live-verify) |
+| `gcs_usage`, `gcs_traffic_history`, `gcs_request_stats` | `project` | optional `bucket`, `days`, `timeout` |
+| `gcs_bucket_stats`, `gcs_top_objects` | `project`, `bucket` | optional `days`, `limit`, `timeout` |
+| `gcs_object_stats` | `bucket`, `object` | optional `timeout` |
+| `gcs_audit_logs` | `project` | optional `bucket`, `days`, `limit`, `timeout` |
+| `gcs_billing`, `gcp_cost_summary` | `project` | optional `dataset`, `days`, `timeout` |
+| `gcp_cost_breakdown` | `project` | optional `dataset`, `days`, `group_by`, `timeout` |
+| `gcp_pricing` | `filter` | optional `timeout` |
+| `gcp_cost_forecast` | `project` | optional `bucket`, `days_history`, `days_ahead`, `rate_usd_per_gib`, `free_gib`, `timeout` |
+| `deploy_diff` | `folder`, `bucket` | optional `prefix`, `timeout` |
+| `deploy_health` | `urls` | optional `sha256`, `timeout` |
+| `gcs_public_check`, `gcs_iam_inspect` | `bucket` | optional `timeout` |
 
 Client-config snippet (stdio; substitute your org/bucket and flags —
 every flag below is a real `starfield mcp` flag):

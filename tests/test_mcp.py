@@ -24,7 +24,68 @@ EXPECTED_TOOLS = (
     "gh_list",
     "verify_deploy",
     "list_mirrors",
+    "gcs_usage",
+    "gcs_bucket_stats",
+    "gcs_object_stats",
+    "gcs_traffic_history",
+    "gcs_request_stats",
+    "gcs_top_objects",
+    "gcs_audit_logs",
+    "gcs_billing",
+    "gcp_cost_summary",
+    "gcp_cost_breakdown",
+    "gcp_pricing",
+    "gcp_cost_forecast",
+    "deploy_diff",
+    "deploy_health",
+    "gcs_public_check",
+    "gcs_iam_inspect",
 )
+
+
+class TestNewToolWiring(unittest.TestCase):
+    def test_missing_args_are_error_results_not_protocol_errors(self):
+        # No required args at all: every new tool must answer, not crash.
+        calls = [
+            ("gcs_usage", {}),
+            ("gcs_bucket_stats", {}),
+            ("gcs_object_stats", {}),
+            ("gcs_traffic_history", {}),
+            ("gcs_request_stats", {}),
+            ("gcs_top_objects", {}),
+            ("gcs_audit_logs", {}),
+            ("gcs_billing", {}),
+            ("gcp_cost_summary", {}),
+            ("gcp_cost_breakdown", {}),
+            ("gcp_pricing", {}),
+            ("gcp_cost_forecast", {}),
+            ("deploy_diff", {}),
+            ("deploy_health", {}),
+            ("gcs_public_check", {}),
+            ("gcs_iam_inspect", {}),
+        ]
+        msgs = [
+            _req(i, "tools/call", {"name": name, "arguments": args})
+            for i, (name, args) in enumerate(calls, start=100)
+        ]
+        for req, (name, _) in zip(msgs, calls):
+            (resp,) = _drive([req])
+            self.assertIn("result", resp, name)
+            self.assertTrue(resp["result"]["isError"], name)
+            self.assertIn("missing", _text(resp).lower(), name)
+
+    def test_deploy_health_passthrough(self):
+        import starfield.deploy_ops as deploy_ops
+
+        real = deploy_ops.deploy_health
+        deploy_ops.deploy_health = lambda *a, **k: {"results": [], "passing": 0,
+                                                    "failing": [], "source": "t"}
+        try:
+            (resp,) = _drive([_call("deploy_health",
+                                    {"urls": ["https://x/y.svg"]})])
+        finally:
+            deploy_ops.deploy_health = real
+        self.assertFalse(resp["result"]["isError"])
 
 
 def _req(id_, method, params=None):

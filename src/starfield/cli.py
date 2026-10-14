@@ -7,7 +7,110 @@ import json
 import sys
 from typing import Sequence
 
-from . import core, gcs_ops, gh_ops, http_server, links, mcp_server, verify
+from . import analytics, billing, core, deploy_ops, gcs_ops, gh_ops, http_server, links, mcp_server, verify
+
+
+def _run_read_op(args: argparse.Namespace) -> int:
+    """Run a read-only op described by `args._op(name, params)`; print JSON."""
+    try:
+        func = getattr(args._mod, args._fname)
+        out = func(**args._params(args), timeout=args.timeout)
+    except core.CliError as exc:
+        print(exc.message, file=sys.stderr)
+        return 1
+    print(json.dumps(out, indent=2, default=str))
+    return 0
+
+
+def _read_parser(
+    sub: argparse._SubParsersAction,
+    name: str,
+    help_text: str,
+    mod,
+    fname: str,
+    required: tuple,
+    options: tuple,
+    renames: dict | None = None,
+) -> None:
+    """Register a read-only subcommand from a spec row.
+
+    `options` is ((flag, type, default), ...); `--timeout` always added.
+    `renames` maps CLI flags to function parameter names. The op function
+    is resolved from `(mod, fname)` at call time so tests can patch ops.
+    """
+    renames = renames or {}
+    p = sub.add_parser(name, help=help_text)
+    for field in required:
+        if field == "urls":
+            p.add_argument("--urls", nargs="+", required=True)
+        else:
+            p.add_argument("--" + field.replace("_", "-"), required=True)
+    for flag, typ, default in options:
+        if isinstance(default, bool):
+            p.add_argument("--" + flag, action="store_true")
+        else:
+            p.add_argument("--" + flag, type=typ, default=default)
+    p.add_argument("--timeout", type=int, default=300)
+
+    def params(args: argparse.Namespace, _req=required,
+               _opts=options, _ren=renames) -> dict:
+        kwargs = {field: getattr(args, field) for field in _req}
+        for flag, _typ, default in _opts:
+            kwargs[flag] = getattr(args, flag)
+        return { _ren.get(k, k): v for k, v in kwargs.items() }
+
+    p.set_defaults(func=_run_read_op, _mod=mod, _fname=fname,
+                   _params=lambda args, _p=params: _p(args))
+
+
+#: Read-only inspection commands: (name, help, module, func, required,
+#: options[, renames]).
+_READ_COMMANDS = (
+    ("gcs-usage", "bucket usage and traffic", analytics, "usage",
+     ("project",), (("bucket", str, None), ("days", int, 30))),
+    ("gcs-bucket-stats", "one bucket plus stored bytes/object count",
+     analytics, "bucket_stats", ("project", "bucket"), (("days", int, 30),)),
+    ("gcs-object-stats", "size/metadata/cache config for one object",
+     analytics, "object_stats", ("bucket", "object"), ()),
+    ("gcs-traffic-history", "daily sent bytes and requests",
+     analytics, "traffic_history", ("project",),
+     (("bucket", str, None), ("days", int, 30))),
+    ("gcs-request-stats", "requests by method and response code",
+     analytics, "request_stats", ("project",),
+     (("bucket", str, None), ("days", int, 30))),
+    ("gcs-top-objects", "most-downloaded objects from usage logs",
+     analytics, "top_objects", ("project", "bucket"),
+     (("days", int, 7), ("limit", int, 10))),
+    ("gcs-audit-logs", "recent storage audit/admin events",
+     analytics, "audit_logs", ("project",),
+     (("bucket", str, None), ("days", int, 7), ("limit", int, 50))),
+    ("gcs-billing", "billing export status plus cost summary",
+     billing, "gcs_billing", ("project",),
+     (("dataset", str, "billing_export"), ("days", int, 30))),
+    ("gcp-cost-summary", "total cost/credits/net per service",
+     billing, "cost_summary", ("project",),
+     (("dataset", str, "billing_export"), ("days", int, 30))),
+    ("gcp-cost-breakdown", "cost grouped by service/sku/project/day",
+     billing, "cost_breakdown", ("project",),
+     (("dataset", str, "billing_export"), ("days", int, 30),
+      ("group_by", str, "service"))),
+    ("gcp-pricing", "search the public billing catalog",
+     billing, "pricing", ("filter",), (), {"filter": "filter_text"}),
+    ("gcp-cost-forecast", "project traffic forward and price it",
+     billing, "forecast", ("project",),
+     (("bucket", str, None), ("days_history", int, 30),
+      ("days_ahead", int, 30), ("rate_usd_per_gib", float, None),
+      ("free_gib", float, billing.FREE_EGRESS_GIB))),
+    ("deploy-diff", "preview local folder vs bucket differences",
+     deploy_ops, "deploy_diff", ("folder", "bucket"), (("prefix", str, ""),)),
+    ("deploy-health", "probe URLs for status/latency/hash",
+     deploy_ops, "deploy_health", ("urls",),
+     (("sha256", str, None),)),
+    ("gcs-public-check", "report anonymous read access for a bucket",
+     deploy_ops, "public_check", ("bucket",), ()),
+    ("gcs-iam-inspect", "dump a bucket's IAM bindings",
+     deploy_ops, "iam_inspect", ("bucket",), ()),
+)
 
 
 def _stub(command: str) -> int:
@@ -256,6 +359,10 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--timeout", type=int, default=300)
     p.add_argument("--concurrency", type=int, default=8)
     p.set_defaults(func=_run_mcp)
+
+    for _name, _help, _mod, _fname, _required, _options, *_rest in _READ_COMMANDS:
+        _read_parser(sub, _name, _help, _mod, _fname, _required, _options,
+                     renames=_rest[0] if _rest else None)
 
     return parser
 

@@ -11,10 +11,48 @@ import json
 import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-from . import gcs_ops, gh_ops, links, verify
+from . import analytics, billing, deploy_ops, gcs_ops, gh_ops, links, verify
 
 #: Mutating routes that refuse without `allow_create=True`.
 _CREATE_ROUTES = ("/v1/ensure-repo", "/v1/ensure-bucket")
+
+#: Read-only routes as (path, module, func-name, required, defaults, renames).
+#: Modules (not function objects) so tests can patch op functions.
+_READ_ROUTES: dict[str, tuple] = {
+    "/v1/gcs-usage": (analytics, "usage", ("project",),
+                      {"bucket": None, "days": 30}, {}),
+    "/v1/gcs-bucket-stats": (analytics, "bucket_stats", ("project", "bucket"),
+                             {"days": 30}, {}),
+    "/v1/gcs-object-stats": (analytics, "object_stats", ("bucket", "object"),
+                             {}, {}),
+    "/v1/gcs-traffic-history": (analytics, "traffic_history", ("project",),
+                                {"bucket": None, "days": 30}, {}),
+    "/v1/gcs-request-stats": (analytics, "request_stats", ("project",),
+                              {"bucket": None, "days": 30}, {}),
+    "/v1/gcs-top-objects": (analytics, "top_objects", ("project", "bucket"),
+                            {"days": 7, "limit": 10}, {}),
+    "/v1/gcs-audit-logs": (analytics, "audit_logs", ("project",),
+                           {"bucket": None, "days": 7, "limit": 50}, {}),
+    "/v1/gcs-billing": (billing, "export_status", ("project",),
+                        {"dataset": "billing_export"}, {}),
+    "/v1/gcp-cost-summary": (billing, "cost_summary", ("project",),
+                             {"dataset": "billing_export", "days": 30}, {}),
+    "/v1/gcp-cost-breakdown": (billing, "cost_breakdown", ("project",),
+                               {"dataset": "billing_export", "days": 30,
+                                "group_by": "service"}, {}),
+    "/v1/gcp-pricing": (billing, "pricing", ("filter",), {},
+                        {"filter": "filter_text"}),
+    "/v1/gcp-cost-forecast": (billing, "forecast", ("project",),
+                              {"bucket": None, "days_history": 30,
+                               "days_ahead": 30, "rate_usd_per_gib": None,
+                               "free_gib": billing.FREE_EGRESS_GIB}, {}),
+    "/v1/deploy-diff": (deploy_ops, "deploy_diff", ("folder", "bucket"),
+                        {"prefix": ""}, {}),
+    "/v1/deploy-health": (deploy_ops, "deploy_health", ("urls",),
+                          {"sha256": None}, {}),
+    "/v1/gcs-public-check": (deploy_ops, "public_check", ("bucket",), {}, {}),
+    "/v1/gcs-iam-inspect": (deploy_ops, "iam_inspect", ("bucket",), {}, {}),
+}
 
 
 def _missing(body: dict, *names: str) -> str | None:
@@ -135,6 +173,12 @@ def _handler_class(allow_create: bool, default_timeout: float):
                         self._send_json(400, {"ok": False, "error": err})
                     else:
                         self._handle_links(body)
+                elif path in _READ_ROUTES:
+                    body, err = self._read_json()
+                    if err is not None:
+                        self._send_json(400, {"ok": False, "error": err})
+                    else:
+                        self._handle_read(path, body)
                 else:
                     self._not_found()
             except BrokenPipeError:
@@ -285,6 +329,34 @@ def _handler_class(allow_create: bool, default_timeout: float):
                 self._send_json(400, {"ok": False, "error": str(exc)})
                 return
             self._send_json(200, {"ok": True, "text": text, "format": fmt})
+
+        def _handle_read(self, path: str, body: dict) -> None:
+            mod, fname, required, defaults, renames = _READ_ROUTES[path]
+            func = getattr(mod, fname)  # resolve late so tests can patch ops
+            missing = _missing(body, *required)
+            if missing:
+                self._send_json(
+                    400, {"ok": False, "error": f"missing {missing}"}
+                )
+                return
+            kwargs = dict(defaults)
+            for key in required:
+                kwargs[renames.get(key, key)] = body[key]
+            for key, value in body.items():
+                if key in ("timeout",):
+                    continue
+                kwargs[renames.get(key, key)] = value
+            try:
+                out = func(**kwargs, timeout=self._timeout(body))
+            except TypeError as exc:
+                self._send_json(
+                    400, {"ok": False, "error": f"bad arguments: {exc}"}
+                )
+                return
+            except Exception as exc:
+                self._send_json(500, {"ok": False, "error": str(exc)})
+                return
+            self._send_json(200, {"ok": True, **out})
 
         def _handle_gh_list(self, query: dict) -> None:
             if not query.get("org"):

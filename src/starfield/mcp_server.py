@@ -24,7 +24,7 @@ import json
 import sys
 from typing import Any, TextIO
 
-from . import __version__, gcs_ops, gh_ops, links, verify
+from . import __version__, analytics, billing, deploy_ops, gcs_ops, gh_ops, links, verify
 
 #: MCP protocol version this server handshakes with.
 PROTOCOL_VERSION = "2024-11-05"
@@ -158,6 +158,212 @@ TOOL_DEFS: list[dict[str, Any]] = [
                 "timeout": {"type": "number"},
             },
             ["org", "repo", "ref"],
+        ),
+    },
+    {
+        "name": "gcs_usage",
+        "description": "Stored/download/upload bytes and request counts per bucket.",
+        "inputSchema": _schema(
+            {
+                "project": {"type": "string"},
+                "bucket": {"type": "string"},
+                "days": {"type": "integer"},
+                "timeout": {"type": "number"},
+            },
+            ["project"],
+        ),
+    },
+    {
+        "name": "gcs_bucket_stats",
+        "description": "Usage for one bucket plus stored bytes and object count.",
+        "inputSchema": _schema(
+            {
+                "project": {"type": "string"},
+                "bucket": {"type": "string"},
+                "days": {"type": "integer"},
+                "timeout": {"type": "number"},
+            },
+            ["project", "bucket"],
+        ),
+    },
+    {
+        "name": "gcs_object_stats",
+        "description": "Size, metadata, and cache config for one object.",
+        "inputSchema": _schema(
+            {
+                "bucket": {"type": "string"},
+                "object": {"type": "string"},
+                "timeout": {"type": "number"},
+            },
+            ["bucket", "object"],
+        ),
+    },
+    {
+        "name": "gcs_traffic_history",
+        "description": "Daily sent bytes and requests across the window.",
+        "inputSchema": _schema(
+            {
+                "project": {"type": "string"},
+                "bucket": {"type": "string"},
+                "days": {"type": "integer"},
+                "timeout": {"type": "number"},
+            },
+            ["project"],
+        ),
+    },
+    {
+        "name": "gcs_request_stats",
+        "description": "Request counts by method and response code.",
+        "inputSchema": _schema(
+            {
+                "project": {"type": "string"},
+                "bucket": {"type": "string"},
+                "days": {"type": "integer"},
+                "timeout": {"type": "number"},
+            },
+            ["project"],
+        ),
+    },
+    {
+        "name": "gcs_top_objects",
+        "description": "Most-downloaded objects from usage logs (graceful without logging).",
+        "inputSchema": _schema(
+            {
+                "project": {"type": "string"},
+                "bucket": {"type": "string"},
+                "days": {"type": "integer"},
+                "limit": {"type": "integer"},
+                "timeout": {"type": "number"},
+            },
+            ["project", "bucket"],
+        ),
+    },
+    {
+        "name": "gcs_audit_logs",
+        "description": "Recent storage audit/admin events (empty is normal).",
+        "inputSchema": _schema(
+            {
+                "project": {"type": "string"},
+                "bucket": {"type": "string"},
+                "days": {"type": "integer"},
+                "limit": {"type": "integer"},
+                "timeout": {"type": "number"},
+            },
+            ["project"],
+        ),
+    },
+    {
+        "name": "gcs_billing",
+        "description": "Billing export status plus cost summary (graceful without export).",
+        "inputSchema": _schema(
+            {
+                "project": {"type": "string"},
+                "dataset": {"type": "string"},
+                "days": {"type": "integer"},
+                "timeout": {"type": "number"},
+            },
+            ["project"],
+        ),
+    },
+    {
+        "name": "gcp_cost_summary",
+        "description": "Total cost/credits/net per service.",
+        "inputSchema": _schema(
+            {
+                "project": {"type": "string"},
+                "dataset": {"type": "string"},
+                "days": {"type": "integer"},
+                "timeout": {"type": "number"},
+            },
+            ["project"],
+        ),
+    },
+    {
+        "name": "gcp_cost_breakdown",
+        "description": "Cost grouped by service, sku, project, or day.",
+        "inputSchema": _schema(
+            {
+                "project": {"type": "string"},
+                "dataset": {"type": "string"},
+                "days": {"type": "integer"},
+                "group_by": {"type": "string"},
+                "timeout": {"type": "number"},
+            },
+            ["project"],
+        ),
+    },
+    {
+        "name": "gcp_pricing",
+        "description": "Search the public billing catalog for matching SKUs.",
+        "inputSchema": _schema(
+            {
+                "filter": {"type": "string"},
+                "timeout": {"type": "number"},
+            },
+            ["filter"],
+        ),
+    },
+    {
+        "name": "gcp_cost_forecast",
+        "description": "Project traffic forward and price it (estimate, not a bill).",
+        "inputSchema": _schema(
+            {
+                "project": {"type": "string"},
+                "bucket": {"type": "string"},
+                "days_history": {"type": "integer"},
+                "days_ahead": {"type": "integer"},
+                "rate_usd_per_gib": {"type": "number"},
+                "free_gib": {"type": "number"},
+                "timeout": {"type": "number"},
+            },
+            ["project"],
+        ),
+    },
+    {
+        "name": "deploy_diff",
+        "description": "Preview local-folder vs bucket differences (read-only).",
+        "inputSchema": _schema(
+            {
+                "folder": {"type": "string"},
+                "bucket": {"type": "string"},
+                "prefix": {"type": "string"},
+                "timeout": {"type": "number"},
+            },
+            ["folder", "bucket"],
+        ),
+    },
+    {
+        "name": "deploy_health",
+        "description": "Probe URLs for status, latency, and optional hash.",
+        "inputSchema": _schema(
+            {
+                "urls": {"type": "array", "items": {"type": "string"}},
+                "sha256": {"type": "string"},
+                "timeout": {"type": "number"},
+            },
+            ["urls"],
+        ),
+    },
+    {
+        "name": "gcs_public_check",
+        "description": "Report whether anonymous users can read a bucket.",
+        "inputSchema": _schema(
+            {
+                "bucket": {"type": "string"},
+                "timeout": {"type": "number"},
+            },
+            ["bucket"],
+        ),
+    },
+    {
+        "name": "gcs_iam_inspect",
+        "description": "Dump a bucket's IAM bindings (read-only).",
+        "inputSchema": _schema(
+            {
+                "bucket": {"type": "string"},
+                "timeout": {"type": "number"},
+            },
+            ["bucket"],
         ),
     },
 ]
@@ -312,6 +518,117 @@ def _call_tool(
             except ValueError as exc:
                 return _err(str(exc))
             return _ok({"text": text, "format": fmt})
+        if name == "gcs_usage":
+            if not args.get("project"):
+                return _err("missing project")
+            return _ok(analytics.usage(
+                args["project"], bucket=args.get("bucket"),
+                days=int(args.get("days", 30)), timeout=_timeout(args, timeout)))
+        if name == "gcs_bucket_stats":
+            for key in ("project", "bucket"):
+                if not args.get(key):
+                    return _err(f"missing {key}")
+            return _ok(analytics.bucket_stats(
+                args["project"], args["bucket"],
+                days=int(args.get("days", 30)), timeout=_timeout(args, timeout)))
+        if name == "gcs_object_stats":
+            for key in ("bucket", "object"):
+                if not args.get(key):
+                    return _err(f"missing {key}")
+            return _ok(analytics.object_stats(
+                args["bucket"], args["object"], timeout=_timeout(args, timeout)))
+        if name == "gcs_traffic_history":
+            if not args.get("project"):
+                return _err("missing project")
+            return _ok(analytics.traffic_history(
+                args["project"], bucket=args.get("bucket"),
+                days=int(args.get("days", 30)), timeout=_timeout(args, timeout)))
+        if name == "gcs_request_stats":
+            if not args.get("project"):
+                return _err("missing project")
+            return _ok(analytics.request_stats(
+                args["project"], bucket=args.get("bucket"),
+                days=int(args.get("days", 30)), timeout=_timeout(args, timeout)))
+        if name == "gcs_top_objects":
+            for key in ("project", "bucket"):
+                if not args.get(key):
+                    return _err(f"missing {key}")
+            return _ok(analytics.top_objects(
+                args["project"], args["bucket"],
+                days=int(args.get("days", 7)), limit=int(args.get("limit", 10)),
+                timeout=_timeout(args, timeout)))
+        if name == "gcs_audit_logs":
+            if not args.get("project"):
+                return _err("missing project")
+            return _ok(analytics.audit_logs(
+                args["project"], bucket=args.get("bucket"),
+                days=int(args.get("days", 7)), limit=int(args.get("limit", 50)),
+                timeout=_timeout(args, timeout)))
+        if name == "gcs_billing":
+            if not args.get("project"):
+                return _err("missing project")
+            dataset = args.get("dataset", "billing_export")
+            return _ok(billing.gcs_billing(
+                args["project"], dataset=dataset,
+                days=int(args.get("days", 30)),
+                timeout=_timeout(args, timeout)))
+        if name == "gcp_cost_summary":
+            if not args.get("project"):
+                return _err("missing project")
+            return _ok(billing.cost_summary(
+                args["project"], dataset=args.get("dataset", "billing_export"),
+                days=int(args.get("days", 30)), timeout=_timeout(args, timeout)))
+        if name == "gcp_cost_breakdown":
+            if not args.get("project"):
+                return _err("missing project")
+            return _ok(billing.cost_breakdown(
+                args["project"], dataset=args.get("dataset", "billing_export"),
+                days=int(args.get("days", 30)),
+                group_by=args.get("group_by", "service"),
+                timeout=_timeout(args, timeout)))
+        if name == "gcp_pricing":
+            if not args.get("filter"):
+                return _err("missing filter")
+            return _ok(billing.pricing(
+                args["filter"], timeout=_timeout(args, timeout)))
+        if name == "gcp_cost_forecast":
+            if not args.get("project"):
+                return _err("missing project")
+            kwargs: dict[str, Any] = {
+                "days_history": int(args.get("days_history", 30)),
+                "days_ahead": int(args.get("days_ahead", 30)),
+                "free_gib": float(args.get("free_gib", billing.FREE_EGRESS_GIB)),
+                "timeout": _timeout(args, timeout),
+            }
+            if args.get("bucket"):
+                kwargs["bucket"] = args["bucket"]
+            if args.get("rate_usd_per_gib") is not None:
+                kwargs["rate_usd_per_gib"] = float(args["rate_usd_per_gib"])
+            return _ok(billing.forecast(args["project"], **kwargs))
+        if name == "deploy_diff":
+            for key in ("folder", "bucket"):
+                if not args.get(key):
+                    return _err(f"missing {key}")
+            return _ok(deploy_ops.deploy_diff(
+                args["folder"], args["bucket"], prefix=args.get("prefix", ""),
+                timeout=_timeout(args, timeout)))
+        if name == "deploy_health":
+            if not args.get("urls"):
+                return _err("missing urls")
+            return _ok(deploy_ops.deploy_health(
+                list(args["urls"]), sha256=args.get("sha256"),
+                timeout=_timeout(args, timeout)))
+        if name == "gcs_public_check":
+            if not args.get("bucket"):
+                return _err("missing bucket")
+            return _ok(deploy_ops.public_check(
+                args["bucket"], timeout=_timeout(args, timeout)))
+        if name == "gcs_iam_inspect":
+            if not args.get("bucket"):
+                return _err("missing bucket")
+            out = deploy_ops.iam_inspect(
+                args["bucket"], timeout=_timeout(args, timeout))
+            return _ok(out)
     except Exception as exc:
         return _err(str(exc))
     return _err(f"unknown tool: {name}")
